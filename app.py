@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, send_file, abort
+from flask import Flask, request, jsonify, render_template, send_file, send_from_directory
 from flask_mail import Mail, Message
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
@@ -17,6 +17,7 @@ app = Flask(__name__)
 MONGO_URI = os.getenv("MONGODB_URI")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FIRMWARE_DIR = os.path.join(BASE_DIR, 'static', 'firmware')
 FIRMWARE_PATH = os.path.join(BASE_DIR, 'static', 'firmware', 'GetChipID.ino.bin')
 
 # Initialize MongoDB client
@@ -51,6 +52,35 @@ def insert_data():
 def home():
     return render_template("index.html")
 
+@app.route('/firmware/latest')
+def serve_firmware():
+    firmware_file = "GetChipID.ino.bin"
+    return send_from_directory(FIRMWARE_DIR, firmware_file, as_attachment=True)
+
+
+@app.route('/firmware/upload', methods=['POST'])
+def upload_firmware():
+    token = request.headers.get('Authorization')
+    if token != f"Bearer {os.getenv('UPLOAD_SECRET')}":
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if 'firmware' not in request.files:
+        return jsonify({"error": "No firmware file provided"}), 400
+
+    file = request.files['firmware']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    try:
+        os.makedirs(FIRMWARE_DIR, exist_ok=True)
+        file.save(os.path.join(FIRMWARE_DIR, 'GetChipID.ino.bin'))
+        return jsonify({"message": "Firmware uploaded successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/upload-firmware", methods=["GET"])
+def upload_firmware_form():
+    return render_template("upload.html")
 
 @app.route("/get-latest", methods=["GET"])
 def get_latest():
