@@ -16,7 +16,8 @@ app = Flask(__name__)
 # Load URI from .env
 MONGO_URI = os.getenv("MONGODB_URI")
 
-FIRMWARE_PATH = r"C:\Users\JBSS\Desktop\new_weather\GetChipID\build\esp32.esp32.esp32\GetChipID.ino.bin"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FIRMWARE_PATH = os.path.join(BASE_DIR, 'static', 'firmware', 'GetChipID.ino.bin')
 
 # Initialize MongoDB client
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
