@@ -12,7 +12,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # MongoDB config
-MONGO_URI = os.getenv("MONGODB_URI")
+MONGO_URI = "mongodb+srv://ayan12345:ayan12345@cluster-1.kh6okyv.mongodb.net/"
 client = None
 db = None
 collection = None
