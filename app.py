@@ -61,14 +61,22 @@ def insert_data():
     if not collection:
         return jsonify({"error": "Database not connected"}), 500
     try:
-        data = request.get_json()
+        raw_data = request.get_data(as_text=True)
+        print("📩 Raw body:", raw_data)
+
+        data = request.get_json(force=True)  # ⚠️ Force parsing without content-type check
+        print("✅ Parsed JSON:", data)
+
         if not data:
             return jsonify({"error": "No data received"}), 400
+
         data["timestamp"] = datetime.now(timezone.utc)
         collection.insert_one(data)
         return jsonify({"message": "Data inserted successfully"}), 201
     except Exception as e:
+        print("❌ Insert error:", str(e))
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/get-latest")
 def get_latest():
