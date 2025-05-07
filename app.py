@@ -35,6 +35,8 @@ def ping_db():
 
 @app.route("/insert", methods=["POST"])
 def insert_data():
+    print("Headers:", request.headers)
+    print("Raw data:", request.data)
     data = request.get_json()
     print(data)
     if not data:
