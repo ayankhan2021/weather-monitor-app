@@ -3,146 +3,41 @@ from flask_mail import Mail, Message
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 from dotenv import load_dotenv
-import os
 from datetime import datetime, timedelta, timezone
-from datetime import timedelta
-import json
+import os
 
-from flask_mail import Mail, Message
-
+# Load environment variables
 load_dotenv()
+
 app = Flask(__name__)
 
-# Load URI from .env
+# MongoDB config
 MONGO_URI = os.getenv("MONGODB_URI")
+client = None
+db = None
+collection = None
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def connect_to_mongo():
+    global client, db, collection
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        client.admin.command('ping')  # Trigger connection
+        db = client.get_database()
+        collection = db["AirMonitoring"]
+        print("✅ MongoDB connected successfully.")
+    except Exception as e:
+        print("❌ MongoDB connection failed:", str(e))
+        client, db, collection = None, None, None
+
+# Connect at runtime (non-blocking)
+connect_to_mongo()
+
+# Flask config
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 FIRMWARE_DIR = os.path.join(BASE_DIR, 'static', 'firmware')
-FIRMWARE_PATH = os.path.join(BASE_DIR, 'static', 'firmware', 'GetChipID.ino.bin')
+FIRMWARE_PATH = os.path.join(FIRMWARE_DIR, 'GetChipID.ino.bin')
 
-# Initialize MongoDB client
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-db = client['air-monitoring'] if 'air-monitoring' not in MONGO_URI else client.get_default_database()
-collection = db["AirMonitoring"]
-
-@app.route("/ping-db", methods=["GET"])
-def ping_db():
-    try:
-        client.admin.command('ping')
-        return jsonify({"status": "success", "message": "MongoDB connected!"}), 200
-    except ServerSelectionTimeoutError as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route("/insert", methods=["POST"])
-def insert_data():
-    print("Headers:", request.headers)
-    print("Raw data:", request.data)
-    data = request.get_json()
-    print(data)
-    if not data:
-        return jsonify({"error": "No data received"}), 400
-    try:
-        # data["timestamp"] = datetime.now()
-        data["timestamp"] = datetime.now(timezone.utc)
-        collection.insert_one(data)
-        return jsonify({"message": "Data inserted successfully"}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-
-@app.route("/", methods=["GET"])
-def home():
-    return render_template("index.html")
-
-@app.route('/firmware/latest')
-def serve_firmware():
-    firmware_file = "GetChipID.ino.bin"
-    return send_from_directory(FIRMWARE_DIR, firmware_file, as_attachment=True)
-
-
-@app.route('/firmware/upload', methods=['POST'])
-def upload_firmware():
-    token = request.headers.get('Authorization')
-    if token != f"Bearer {os.getenv('UPLOAD_SECRET')}":
-        return jsonify({"error": "Unauthorized"}), 401
-
-    if 'firmware' not in request.files:
-        return jsonify({"error": "No firmware file provided"}), 400
-
-    file = request.files['firmware']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-
-    try:
-        os.makedirs(FIRMWARE_DIR, exist_ok=True)
-        file.save(os.path.join(FIRMWARE_DIR, 'GetChipID.ino.bin'))
-        return jsonify({"message": "Firmware uploaded successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/upload-firmware", methods=["GET"])
-def upload_firmware_form():
-    return render_template("upload.html")
-
-@app.route("/get-latest", methods=["GET"])
-def get_latest():
-    try:
-        data = collection.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
-        if data and "timestamp" in data:
-            # If timestamp is a datetime object
-            # Add 5 hours if needed
-            adjusted_time = data["timestamp"] + timedelta(hours=5)
-            # Format to "YYYY-MM-DD HH:MM:SS"
-            data["timestamp"] = adjusted_time.strftime("%Y-%m-%d %H:%M:%S")
-            return jsonify(data), 200
-        return jsonify({"error": "No data found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/get-firmware", methods=["GET"])
-def get_firmware():
-    try:
-        if not os.path.exists(FIRMWARE_PATH):
-            return jsonify({"error": "Firmware file not found."}), 404
-
-        return send_file(FIRMWARE_PATH, mimetype="application/octet-stream", as_attachment=True)
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-from datetime import datetime, timedelta
-
-@app.route("/get-history", methods=["GET"])
-def get_history():
-    try:
-        # Get last 24 hours of data
-        time_threshold = datetime.now() - timedelta(hours=24)
-        data = list(collection.find(
-            {"timestamp": {"$gte": time_threshold}},
-            {"_id": 0}
-        ).sort("timestamp", 1))
-        
-        # Format data for charts
-        formatted = {
-            "timestamps": [],
-            "temperatures": [],
-            "humidities": [],
-            "air_qualities": []
-        }
-
-        for item in data:
-            # Adjust for 5-hour difference (or whatever your timezone offset is)
-            adjusted_time = item['timestamp'] + timedelta(hours=5)
-            
-            formatted["timestamps"].append(adjusted_time.strftime('%Y-%m-%d %H:%M:%S'))
-            formatted["temperatures"].append(item['temperature'])
-            formatted["humidities"].append(item['humidity'])
-            formatted["air_qualities"].append(item['air_quality'])
-        
-        return jsonify(formatted), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# Mail config
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
@@ -151,42 +46,120 @@ app.config['MAIL_PASSWORD'] = 'fjvy cxsw gonq sxih'
 
 mail = Mail(app)
 
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+@app.route("/ping-db")
+def ping_db():
+    if not collection:
+        return jsonify({"status": "error", "message": "MongoDB not connected"}), 500
+    return jsonify({"status": "success", "message": "MongoDB connected"}), 200
+
+@app.route("/insert", methods=["POST"])
+def insert_data():
+    if not collection:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+        data["timestamp"] = datetime.now(timezone.utc)
+        collection.insert_one(data)
+        return jsonify({"message": "Data inserted successfully"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/get-latest")
+def get_latest():
+    if not collection:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        data = collection.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
+        if not data:
+            return jsonify({"error": "No data found"}), 404
+        data["timestamp"] = (data["timestamp"] + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/get-history")
+def get_history():
+    if not collection:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        time_threshold = datetime.now() - timedelta(hours=24)
+        data = list(collection.find({"timestamp": {"$gte": time_threshold}}, {"_id": 0}).sort("timestamp", 1))
+        formatted = {
+            "timestamps": [(d["timestamp"] + timedelta(hours=5)).strftime('%Y-%m-%d %H:%M:%S') for d in data],
+            "temperatures": [d["temperature"] for d in data],
+            "humidities": [d["humidity"] for d in data],
+            "air_qualities": [d["air_quality"] for d in data]
+        }
+        return jsonify(formatted), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/get-firmware")
+def get_firmware():
+    if not os.path.exists(FIRMWARE_PATH):
+        return jsonify({"error": "Firmware file not found"}), 404
+    return send_file(FIRMWARE_PATH, mimetype="application/octet-stream", as_attachment=True)
+
+@app.route("/firmware/latest")
+def serve_firmware():
+    return send_from_directory(FIRMWARE_DIR, "GetChipID.ino.bin", as_attachment=True)
+
+@app.route("/firmware/upload", methods=["POST"])
+def upload_firmware():
+    token = request.headers.get('Authorization')
+    if token != f"Bearer {os.getenv('UPLOAD_SECRET')}":
+        return jsonify({"error": "Unauthorized"}), 401
+    file = request.files.get('firmware')
+    if not file or file.filename == '':
+        return jsonify({"error": "No firmware file provided"}), 400
+    try:
+        os.makedirs(FIRMWARE_DIR, exist_ok=True)
+        file.save(FIRMWARE_PATH)
+        return jsonify({"message": "Firmware uploaded successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/upload-firmware")
+def upload_firmware_form():
+    return render_template("upload.html")
+
+@app.route("/send-report")
+def send_report():
+    return send_all()
 
 def send_all():
+    if not collection:
+        return "MongoDB not connected", 500
     try:
-        # Fetch latest document from MongoDB
-        latest_data = collection.find_one(sort=[("timestamp", -1)])
-        
-        if latest_data:
-            temperature = latest_data.get('temperature')
-            humidity = latest_data.get('humidity')
-            air_quality = latest_data.get('air_quality') 
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S') # Changed from "pressure" to your real field
-
-            msg = Message('🌤️ Latest Weather Station Report',
-                          sender='khan4506342@cloud.neduet.edu.pk',
-                          recipients=['ak123782651@gmail.com'])
-
-            msg.body = f"""
-            Here are the latest sensor readings:
-
-            Temperature: {temperature} °C
-            Humidity: {humidity} %
-            Air Quality Index: {air_quality}
-            Current Time: {current_time}
-
-            Stay safe and have a nice day! 🌞
-            """
-            msg.content_type = "text/plain"
-
-            mail.send(msg)
-            return 'Weather Report Email Sent!'
-        else:
+        data = collection.find_one(sort=[("timestamp", -1)])
+        if not data:
             return 'No sensor data found in database!', 404
+
+        msg = Message(
+            subject='🌤️ Latest Weather Station Report',
+            sender='khan4506342@cloud.neduet.edu.pk',
+            recipients=['ak123782651@gmail.com']
+        )
+        msg.body = f"""
+        Here are the latest sensor readings:
+
+        Temperature: {data.get('temperature')} °C
+        Humidity: {data.get('humidity')} %
+        Air Quality Index: {data.get('air_quality')}
+        Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+        Stay safe and have a nice day! 🌞
+        """
+        mail.send(msg)
+        return 'Weather Report Email Sent!'
     except Exception as e:
         return f"An error occurred: {str(e)}", 500
 
 if __name__ == "__main__":
-    with app.app_context():
-        send_all()    
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)
