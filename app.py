@@ -1,13 +1,13 @@
 from flask import Flask, request, jsonify, render_template, send_file, send_from_directory
-from flask_mail import Mail, Message
-from pymongo import MongoClient
-from pymongo.errors import ServerSelectionTimeoutError
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
+load_dotenv()
+from pymongo import MongoClient
 import os
+from pymongo.errors import ServerSelectionTimeoutError
+from datetime import datetime, timedelta, timezone
+from flask_mail import Mail, Message
 
 # Load environment variables
-load_dotenv()
 
 app = Flask(__name__)
 
@@ -22,7 +22,7 @@ def connect_to_mongo():
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')  # Trigger connection
-        db = client.get_database()
+        db = client["air-monitoring"]
         collection = db["AirMonitoring"]
         print("✅ MongoDB connected successfully.")
     except Exception as e:
