@@ -3,22 +3,24 @@ from dotenv import load_dotenv
 load_dotenv()
 from pymongo import MongoClient
 import os
+import json
+import requests
 from pymongo.errors import ServerSelectionTimeoutError
 from datetime import datetime, timedelta, timezone
 from flask_mail import Mail, Message
 
 # Load environment variables
 
-app = Flask(__name__)
+app = Flask(__name__)   
 
 # MongoDB config
-MONGO_URI = "mongodb+srv://ayan12345:ayan12345@cluster-1.kh6okyv.mongodb.net/"
+MONGO_URI = "mongodb+srv://ayan12345:ayan12345@cluster-1.kh6okyv.mongodb.net/air-monitoring"
 client = None
 db = None
 collection = None
 
 def connect_to_mongo():
-    global client, db, collection
+    global client, db, collection   
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')  # Trigger connection
@@ -170,4 +172,5 @@ def send_all():
         return f"An error occurred: {str(e)}", 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
